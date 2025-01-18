@@ -6,8 +6,8 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 import streamlit as st
 
-file_path = 'setelah_outlier.xlsx'
-data_insurance = pd.read_excel(file_path)
+file_path = 'setelah_outlier.csv'
+data_insurance = pd.read_csv(file_path)
 
 # Fitur dan target
 X = data_insurance[['age', 'sex', 'bmi', 'children', 'smoker', 'region']]
