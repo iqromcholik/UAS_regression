@@ -1,0 +1,2 @@
+# UAS_regression
+iqrom_cholik_UAS_Data_Mining
