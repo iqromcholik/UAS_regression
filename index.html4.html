@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AR 3D Showcase - Polished</title>
+    <!-- Memuat p5.js dan p5.sound dari CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/addons/p5.sound.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Mencegah scrollbar */
+            background-color: #111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; /* Mencegah zoom/scroll pada HP saat touch */
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Agar klik tembus ke canvas 3D */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        header {
+            text-align: left;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            margin: 5px 0 0;
+            font-size: 0.9rem;
+            color: #ccc;
+        }
+
+        footer {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.8rem;
+            padding-bottom: 20px;
+        }
+
+        /* Overlay untuk Start Audio */
+        #start-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 999;
+            transition: opacity 0.5s ease;
+        }
+
+        .start-btn {
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            color: white;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: transform 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .start-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none !important;
+        }
+    </style>
+</head>
+<body>
+
+<!-- UI Overlay -->
+<div id="ui-layer">
+    <header>
+        <h1>ARtifact Core</h1>
+        <p class="subtitle">Tap objek untuk berinteraksi & suara</p>
+    </header>
+    <footer>
+        Dibuat dengan p5.js WEBGL
+    </footer>
+</div>
+
+<!-- Start Overlay (Diperlukan browser untuk memulai audio) -->
+<div id="start-overlay">
+    <button class="start-btn" id="btn-start">Mulai Pengalaman</button>
+</div>
+
+<script>
+    let myFont;
+    let osc, env; // Komponen Audio
+    let isAudioStarted = false;
+
+    // Variabel untuk Visual
+    let rotX = 0;
+    let rotY = 0;
+    let objectColor;
+    let shapes = [];
+    let currentShapeIndex = 0;
+
+    function preload() {
+        // Kita tidak perlu load font/image agar file tetap single & ringan
+    }
+
+    function setup() {
+        // Buat canvas WEBGL yang responsif (full screen)
+        let canvas = createCanvas(windowWidth, windowHeight, WEBGL);
+        canvas.style('display', 'block');
+
+        // Setup Material Awal
+        objectColor = color(100, 200, 255);
+
+        // Setup Audio (SFX Synthesizer)
+        // Menggunakan Oscillator (Sine wave) agar tidak perlu file eksternal
+        osc = new p5.Oscillator('sine');
+        env = new p5.Envelope();
+
+        // Setting Amplop ADSR untuk suara "Ting"
+        env.setADSR(0.01, 0.1, 0.1, 0.5);
+        env.setRange(0.5, 0); // Volume maks 0.5, min 0
+        osc.start();
+        osc.amp(0); // Mulai dengan diam
+
+        // Setup tombol start
+        const btn = document.getElementById('btn-start');
+        btn.addEventListener('click', () => {
+            userStartAudio().then(() => {
+                isAudioStarted = true;
+                document.getElementById('start-overlay').classList.add('hidden');
+            });
+        });
+
+        // Definisikan bentuk-bentuk objek
+        shapes = [
+            { type: 'box', size: 150 },
+            { type: 'sphere', size: 120 },
+            { type: 'cone', size: 130 },
+            { type: 'torus', size: 100 }
+        ];
+    }
+
+    function draw() {
+        // 1. Background & Polish
+        background(20, 20, 30); // Dark blue-grey background
+
+        // 2. Pencahayaan (Lighting)
+        // AmbientLight: Cahaya dasar agar objek tidak hitam pekat
+        ambientLight(60);
+
+        // DirectionalLight: Cahaya utama seperti matahari
+        directionalLight(255, 255, 255, 0.5, 1, -1);
+
+        // PointLight: Cahaya berwarna yang bergerak (efek dinamis)
+        let locX = mouseX - width / 2;
+        let locY = mouseY - height / 2;
+        // Gerakan cahaya otomatis jika mouse tidak bergerak
+        let autoMoveX = cos(millis() / 1000) * 200;
+        let autoMoveY = sin(millis() / 1000) * 200;
+
+        pointLight(0, 255, 200, autoMoveX, autoMoveY, 200); // Light Cyan
+        pointLight(255, 0, 150, -autoMoveX, -autoMoveY, 100); // Light Magenta
+
+        // 3. Interaksi Rotasi
+        rotX += 0.01;
+        rotY += 0.01;
+
+        // Rotasi ekstra berdasarkan posisi mouse/touch
+        rotateX(rotX + (mouseY / height));
+        rotateY(rotY + (mouseX / width));
+
+        // 4. Material & Objek
+        noStroke();
+
+        // Specular Material: Membuat objek mengkilap (seperti plastik/metal)
+        // Parameter: (R, G, B)
+        specularMaterial(objectColor);
+        shininess(50); // Seberapa mengkilap? (0-255)
+
+        // Gambar objek berdasarkan indeks saat ini
+        let s = shapes[currentShapeIndex];
+        push();
+        if (s.type === 'box') {
+            box(s.size);
+        } else if (s.type === 'sphere') {
+            sphere(s.size / 2, 64, 64); // High detail
+        } else if (s.type === 'cone') {
+            cone(s.size / 2, s.size, 32, 32);
+        } else if (s.type === 'torus') {
+            torus(s.size / 2.5, s.size / 6, 64, 64);
+        }
+        pop();
+    }
+
+    function playSound() {
+        if (!isAudioStarted) return;
+
+        // Ubah frekuensi secara acak agar suaranya bervariasi
+        let midiVal = floor(random(60, 84)); // Rentang nada midi
+        let freq = midiToFreq(midiVal);
+        osc.freq(freq);
+
+        // Mainkan suara
+        env.play(osc, 0, 0.1);
+    }
+
+    function changeAppearance() {
+        // Ubah bentuk objek secara bergantian
+        currentShapeIndex = (currentShapeIndex + 1) % shapes.length;
+
+        // Ubah warna secara acak
+        objectColor = color(random(100, 255), random(100, 255), random(200, 255));
+    }
+
+    // Fungsi Interaksi (Mouse & Touch)
+    function mousePressed() {
+        // Jika klik terjadi di canvas (bukan UI)
+        // Karena UI kita pointer-events: none, ini akan menangkap klik di canvas
+        if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
+            playSound();
+            changeAppearance();
+        }
+    }
+
+    function touchStarted() {
+        // Sama seperti mousePressed, tapi untuk HP
+        // return false mencegah default behavior browser (seperti scroll/zoom)
+        if (isAudioStarted) {
+            playSound();
+            changeAppearance();
+        }
+        return false;
+    }
+
+    function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+    }
+</script>
+</body>
+</html>
